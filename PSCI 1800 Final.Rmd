@@ -1,0 +1,392 @@
+---
+title: "Education and Republican Swings in 2016: \n How Lower-Educated Counties Swung
+  Heavily to Trump"
+subtitle: Lucas Zhu
+date: "Spring 2024 PSCI 1800 Final Paper"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r echo=F, message=FALSE, warning=FALSE}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(stargazer)
+library(rio)
+library(pander)
+
+election <- import("Data/countypres_2000-2020.csv")
+county.info <- import("Data/County Information.csv")
+
+
+# Using data from the 2014-2018 ACS census five year estimates
+
+keep <- c("year", "state", "state_po", "county_name", "county_fips", "candidate", "candidatevotes", "totalvotes")
+election <- election[keep]
+
+# I'm dropping the columns that I don't need and only keeping those that I do
+
+election <- election[election$year == 2012 | election$year == 2016,]
+
+# Subsetting this data to only 2012 and 2016 as I want to focus on swings between those two years
+# Using a pike operator to subset this and obtain this data.
+
+election$percent.vote <- (election$candidatevotes/election$totalvotes)*100
+
+# I'm also now going to calculate the percentage vote received for Trump, Obama, Clinton, and Romney by dividing the vote candidatevotes by the totalvotes column.
+
+election$totalvotes <- NULL
+election$candidatevotes <- NULL
+
+# Now that I have these percents, I'm going to drop the totalvotes and candidatevotes columns. 
+
+election$candidate <- gsub(" ", ".", election$candidate)
+# I'm going to put a dot in between the space of the candidates so it's easier to call in the future. I will also make them lowercase.
+
+election$candidate <- tolower(election$candidate)
+
+election <- spread(election,
+                   key = candidate,
+                   value = percent.vote)
+
+# I am now going to convert the election data from long to wide so I have the columns as the candidates and the percentage of votes they received under them in the column. 
+# I want the unit of analysis to be the county instead of county-year to compare the swings with each other.
+
+election$other <- NULL
+
+# I will also drop other because I'm only curious about the votes in Obama-Trump counties where Obama got more votes than Romney and where Trump got more votes than Clinton.
+
+results.2012 <- election[election$year == 2012,]
+results.2016 <- election[election$year == 2016,]
+
+# I'm now also going to divide the dataset into one for 2016 and one for 2012 so this dataset is easier to handle when finding margins and differences in margins.
+
+results.2012$year <- NULL
+results.2016$year <- NULL
+
+# dropping year since it's irrelevant now
+
+results.2012$donald.trump <- NULL
+results.2012$hillary.clinton <- NULL
+
+# dropping non-applicable candidates for 2012 (trump & clinton)
+
+results.2016$barack.obama <- NULL
+results.2016$mitt.romney <- NULL
+
+# dropping non-applicable candidates for 2016 (obama & romney)
+
+results.2012$margin.2012 <- (results.2012$mitt.romney) - (results.2012$barack.obama)
+results.2016$margin.2016 <- (results.2016$donald.trump) - (results.2016$hillary.clinton)
+
+# calculating the margins for the elections in 2012 and 2016. I did the Rep. - Dem. to find the Republican margin specifically. So, the more positive a number, the more Republican the county was.
+
+keep <- c("donald.trump", "hillary.clinton", "county_fips", "margin.2016")
+results.2016 <- results.2016[keep]
+
+# I am only keeping the variables that matter to me in results.2016. This is because some variables are repetitive in results.2012.
+
+results.merged <- merge(results.2012, results.2016, by = "county_fips")
+
+# I'm merging the two datasets together so I have the margins together. Merging on county_fips since I had these values in both datasets.
+
+results.merged$swing <- (results.merged$margin.2016) - (results.merged$margin.2012)
+
+# I'm now calculating the swing between the two years. I wanted to do 2016 minus 2012 to see what the change became in 2016. 
+
+keep <- c("county_fips", "state", "state_po", "county_name", "swing")
+results.merged <- results.merged[keep]
+
+# I only want to keep the relevant variables for analyzing swings
+
+keep <- c("Geo_FIPS", "Geo_NAME", "PCT_SE_A12002_002", "PCT_SE_A12002_003", "PCT_SE_A12002_004", "PCT_SE_A12002_005", "PCT_SE_A12002_006", "PCT_SE_A12002_007", "PCT_SE_A12002_008", "PCT_SE_A03001_002", "PCT_SE_A03001_003", "PCT_SE_A04001_010")
+
+# I want to keep only the variables that are necessary. Namely, the race percentages and the education %s.
+
+county.info <- county.info[keep]
+
+county.info <- rename(county.info,
+                      less.than.hs = PCT_SE_A12002_002,
+                      hs.grad = PCT_SE_A12002_003,
+                      some.college = PCT_SE_A12002_004,
+                      bach.degree = PCT_SE_A12002_005,
+                      masters.degree = PCT_SE_A12002_006,
+                      prof.degree = PCT_SE_A12002_007,
+                      phd.degree = PCT_SE_A12002_008,
+                      white.perc = PCT_SE_A03001_002,
+                      black.perc = PCT_SE_A03001_003,
+                      hispanic.perc = PCT_SE_A04001_010)
+
+# Renaming all the variables so they are information that make sense
+
+county.info$bach.degree.plus <- (county.info$bach.degree) + (county.info$masters.degree) + (county.info$prof.degree) + (county.info$phd.degree)
+
+# Calculating the percent with more than a bachelor's degree so I can analyze this later. 
+
+county.info$less.than.hs <- NULL
+county.info$hs.grad <- NULL
+county.info$some.college <- NULL
+county.info$bach.degree <- NULL
+county.info$masters.degree <- NULL
+county.info$prof.degree <- NULL
+county.info$phd.degree <- NULL
+
+# I'm now going to drop the variables for the different degrees as I've already calculated the percent of a bachelor's degree or more, so this isn't necessary.
+
+county.info$Geo_NAME <- NULL
+
+# Dropping Geo_NAME since it's no longer necessary to know
+
+county.info.and.swings <- merge(results.merged, county.info, by.x = "county_fips", by.y = "Geo_FIPS")
+
+# Merging the two datasets together so I can make plots and analyze them easily. by.x because I'm matching the variable county_fips in the results.merged and by.y because the name of the fips variable in the county.info dataset is Geo_FIPS
+
+county.info.and.swings$republican.shift <- NA
+county.info.and.swings$republican.shift[county.info.and.swings$swing > 0] <- "Republican Swing"
+county.info.and.swings$republican.shift[county.info.and.swings$swing < 0] <- "Democratic Swing"
+
+# Making indicators of if a county swung Republican or Dem so it's easier to see in the plot and easier for the reader to understand
+```
+
+-----------------------
+
+## 1 | Introduction
+
+  In the 2016 presidential election, several lower college-educated counties swung significantly from Democrat Barack Obama in 2012 to Republican Donald Trump in 2016. The relationship between a county’s college-educated percentage and its 2016 Republican shift was clear in states Obama and Trump won: Michigan, Wisconsin, and Pennsylvania.
+  
+  Take, for example, Juneau County, Wisconsin, where only 13.62% are college-educated. Obama won it in 2012 by 7.03%, but Trump won it in 2016 by 26.05%: a 33.02% Republican swing! Juneau County was no exception: many lower college-educated counties in Obama-Trump states swung Republican in 2016, whereas higher college-educated counties swung Democratic.
+  
+## 2 | Overview of National Trends
+  To explore this, I first gathered 2012 and 2016 county-level presidential election results from the MIT Elections Lab. I calculated each county’s Republican swing by subtracting the percentage Trump won a county in 2016 by the percentage Republican Mitt Romney won it in 2012. A negative swing would indicate that Romney did better in the county than Trump. Then, I used the American Community Survey’s 2014-2018 five-year estimate to calculate the percentage of each county with at least a bachelor’s degree in approximately 2016.
+  
+```{r, echo = F, message = F, warning = F}
+library(ggplot2)
+library(scales)
+
+# running library() on these packages so I can use them
+
+# Creating a plot nationally of counties comparing the percentage college-educated and percentage swing
+
+ggplot(county.info.and.swings) +
+  geom_point(aes(x = bach.degree.plus, 
+                 y = swing,
+                 col = republican.shift),
+             # Making color republican shift to make it clear which way it swung
+             pch = 1) +   
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  # Adding a 0 break line to make it aesthetically clear if a county swung D or R
+  ggtitle("Education and County Republican Shifts in Presidential Vote (2012-2016)",
+            subtitle = "All Counties in the U.S.") +
+  xlab("\n Percent with Bachelor Degree or More") +
+  ylab("Republican Shift (2012-2016)") +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(hjust = 0.5)) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("dodgerblue", "firebrick"),
+          # I'm using red and blue here to demonstrate clearly (through aesthetics) which counties swung R or D
+                     labels = c("Democratic Swing", "Republican Swing")) +
+  scale_y_continuous(limits = c(-50, 50), breaks = seq(-50, 50, 10)) +
+  scale_x_continuous(limits = c(0, 80), breaks = seq(0, 80, 10),
+                     labels = percent_format(scale = 1)) +
+  labs(col = "Party Swing") 
+```
+
+  Nationally, when plotting each county’s college-educated percentage on the x-axis and its Republican swing on the y-axis, the relationship is slightly negative. This means, generally, that the higher a county’s college-educated county, the less it swung Republican. A strong negative correlation exists if the points closely fit a linear downward-trending line. While the points somewhat fit a downward-trending line, the points do not entirely fit this, so the relationship is not strong. We see considerable variation in swings for counties between 10% and 20% college-educated: some swung significantly Republican, while others swung Democratic.
+
+```{r, echo = F}
+# I'm going to print the correlation for this
+
+pander(cor(county.info.and.swings$bach.degree.plus, county.info.and.swings$swing, use = "pairwise.complete"))
+```
+
+  The correlation between these two variables, at only -0.53, confirms these findings. As -0.53 is not particularly close to a -1 correlation, which would indicate a strong negative correlation, the relationship between a county’s educational attainment and its Republican shift is not strong nationally.  Thus, nationally, a county’s college-educated percentage did not strongly predict its 2016 Republican swing.
+
+```{r, echo = F}
+county.info.and.swings$flipped.state <- NA
+# Creating new variable for flipped states, which will list if the state is a flipped state or not so I can make it clear in the next graph and contrast them
+
+county.info.and.swings$flipped.state[county.info.and.swings$state_po == "MI" | 
+                                       county.info.and.swings$state_po == "WI" |
+                                       county.info.and.swings$state_po == "PA"] <- TRUE
+
+county.info.and.swings$flipped.state[!(county.info.and.swings$state_po == "WI"| county.info.and.swings$state_po == "PA" | county.info.and.swings$state_po == "MI")] <- FALSE
+
+# Noting that it's not MI, WI, or PA if it's not a flipped state, which can help me construct a graph in future steps to make them stand out
+```
+
+## 3 | Focusing on Rust Belt Trends
+
+  However, counties in Trump-flipped states, highlighted in pink, show a stronger negative relationship. These counties better fit a linear, downward-sloping line and better fit the general trend of decreasing college-educated percentages corresponding to higher 2016 Republican swings.
+
+```{r, echo = F}
+# Creating a scatterplot to demonstrate that flipped states had a much stronger negative relationship than flipped states.
+
+ggplot(county.info.and.swings) +
+  geom_point(aes(x = bach.degree.plus, 
+                 y = swing,
+                 col = flipped.state),
+             # color is based on this newly created indicator variable, clearly contrasting the two types of states
+             pch = 1) +   
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ggtitle("Education and County Republican Shifts in Presidential Vote (2012-2016)",
+          subtitle = "All Counties in the U.S.") +
+  xlab("\n Percent with Bachelor Degree or More") +
+  ylab("Republican Shift (2012-2016)") +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(hjust = 0.5)) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("gray85", "deeppink"),
+                     # Using these colors to make it very clear which states are emphasized (flipped) and not (non-flipped)
+                     labels = c("Non-Flipped State", "Flipped State")) +
+  scale_y_continuous(limits = c(-50, 50), breaks = seq(-50, 50, 10)) +
+  scale_x_continuous(limits = c(0, 80), breaks = seq(0, 80, 10),
+                     labels = percent_format(scale = 1)) +
+  labs(col = "Flipped State") 
+```
+  
+```{r, echo = F}
+# I want to print the correlations for both non-flipped and flipped counties. To make it clear which belongs to which, I'll cbind a dataframe saying which is which so the reader knows what I'm referring to.
+
+cors <- NA
+
+cors[1] <- cor(county.info.and.swings$bach.degree.plus[county.info.and.swings$flipped.state == FALSE],
+    county.info.and.swings$swing[county.info.and.swings$flipped.state == FALSE],
+    use = "pairwise.complete")
+
+# Finding correlation for non-flipped states
+
+cors[2] <- cor(county.info.and.swings$bach.degree.plus[county.info.and.swings$flipped.state == TRUE],
+    county.info.and.swings$swing[county.info.and.swings$flipped.state == TRUE],
+    use = "pairwise.complete")
+
+# Finding correlation for flipped states
+
+flipped.status <- c("Not Flipped State Correlation", "Flipped State Correlation")
+
+# Creating an object for if the cor is for non-flipped or flipped states. Putting it in this specific order as that is how I put them into the cors object
+
+pander(cbind.data.frame(flipped.status, cors))
+# Creating and printing a dataframe to make it easier to understand for the reader
+```
+
+  To verify this, I found the correlation values for non-flipped and flipped states to be approximately -0.52 and -0.85, respectively. As -0.85 is much closer to -1, flipped states’ counties have a stronger negative correlation between their college-educated percentage and Republican swing than counties overall in non-flipped states. Thus, a lower college-educated percentage in Trump-flipped states more strongly predicted a higher Republican swing than in non-Trump-flipped states as a general characterization^[This is a broad assessment and is not saying that every non-Trump flipped states’ counties had lower correlations.].
+  
+## 4 | Analyzing Individual States of MI, WI, & PA
+
+  When the “flipped states” characterization is broken into individual states and compared with non-flipped states, the relationship between a county’s percentage of college-educated residents and its Republican swing appears most strongly negative in Michigan. The correlation of -0.92 indicates a strongly negative correlation. Thus, a high college-educated county would be predicted to have a lower Republican shift, and vice versa for lower-educated counties.
+
+  Wisconsin also appears to have a strongly negative correlation. However, it seems weaker than Michigan since Wisconsin has more variation of Republican swings, where the points do not fit a downward line as well as Michigan. Its correlation of -0.87 further indicates a weaker relationship than Michigan’s -0.92 correlation.
+  
+  While Pennsylvania, too, has a negative correlation, it is the weakest of the three states. There is considerable variation in Republican shifts for counties with between a 10% and 30% college-educated population. Some counties with a 20% college-educated population swung Republican by about 10%, while others swung Republican by almost 30%. Its correlation of -0.76 indicates a moderately strong negative correlation but one weaker than Michigan and Wisconsin. So, a lower college-educated percentage in a Pennsylvania county does not as strongly suggest a higher Republican county swing when compared to Michigan or Wisconsin.
+
+```{r, echo = F}
+flipped.states <- county.info.and.swings[(county.info.and.swings$state_po == "MI" | county.info.and.swings$state_po == "PA" | county.info.and.swings$state_po == "WI"),]
+
+# I'm now going to make a new dataset of only the states that Trump Flipped so I can compare each state with one another
+
+# Creating graphs between these two variables for all three flipped states and see the differences within each state.
+
+library(ggplot2)
+library(scales)
+ggplot(flipped.states) +
+  geom_point(aes(x = bach.degree.plus, 
+                 y = swing,
+                 col = republican.shift),
+    # I'm making the color republican.shift to indicate with red/blue clearly what the shift was
+             pch = 1) +   
+  facet_wrap(vars(state)) +
+  # Creating one scatterplot for each state
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ggtitle("Education and County Republican Shifts (2012-2016) in Presidential Vote",
+          subtitle = "Comparing Michigan, Wisconsin, and Pennsylvania") +
+  xlab("\n Percent with Bachelor Degree or More") +
+  ylab("Republican Shift (2012-2016)") +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)) +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(-20, 40), breaks = seq(-20, 40, 10)) +
+  scale_x_continuous(limits = c(0, 60), breaks = seq(0, 60, 10),
+                     labels = percent_format(scale = 1)) +
+  scale_color_manual(values = c("dodgerblue", "firebrick"),
+                     labels = c("Democratic Swing", "Republican Swing")) +
+  labs(col = "Party Swing") 
+```
+```{r, echo = F}
+# Next, I want to find the correlations in each of these states. I use a for loop to do this.
+
+flipped.state.name <- unique(flipped.states$state)
+state.bach.cors <- rep(NA, length(flipped.state.name))
+
+# Creating an empty variable where I can story both the name of the flipped states and the eventual calculated correlations.
+
+for (i in 1:length(flipped.state.name)) {
+state.bach.cors[i] <- cor(flipped.states$bach.degree.plus[flipped.states$state == flipped.state.name[i]],
+flipped.states$swing[flipped.states$state == flipped.state.name[i]],
+use = "pairwise.complete")
+  # Running through each state name to calculate the correlations
+}
+
+states.and.cors <- cbind.data.frame(flipped.state.name, state.bach.cors)
+
+# Making a dataframe with the name of the state and the corresponding correlation. It makes it easier to see which correlation lines up with what state this way.
+
+pander(states.and.cors)
+
+# Printing for the reader
+```
+
+## 5 | Analyzing College Shifts when Considering Black Population
+
+  Next, I re-combine the county points from MI, WI, and PA into one graph for all the flipped state counties. While the relationship between a county’s college-educated population and its Republican swing in Trump-flipped states is clear, I want to control for the Black population in each county. This is because a county’s Black population could impact the percentage with a Bachelor’s degree and the percentage that shifted Republican. After sorting the flipped states’ counties into above-median and below-median Black percentages, counties with lower Black percentages swung more Republican in 2016 than higher Black counties. In this figure, the orange points with lower Black populations appear slightly higher than the purple points with higher Black populations. This means counties with a lower Black percentage swung more Republican in 2016.
+
+```{r, echo = F}
+flipped.states$high.black.pop <- NA
+flipped.states$high.black.pop[flipped.states$black.perc >= median(flipped.states$black.perc)] <- 1
+flipped.states$high.black.pop[!(flipped.states$black.perc >= median(flipped.states$black.perc))] <- 0
+# Creating dummy variable for counties w/ low & high Black populations. I put above-median Black percentages as TRUE and below-median as FALSE
+
+# Now creating a ggplot indicating whether a county has a high/low Black population
+ggplot(flipped.states) +
+  geom_point(aes(x = bach.degree.plus, 
+                 y = swing,
+                 col = as.factor(high.black.pop)),
+             # Making the color correspond with the Black percentage (high/low)
+             pch = 1) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ggtitle("Education and County Presidential Republican Shifts (2012-2016)",
+          subtitle = "Michigan, Wisconsin, & Pennsylvania") +
+  xlab("\n Percentage with At Least a Bachelor's Degree") +
+  ylab("Percentage Republican Shift (2012-2016)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)) +
+  scale_y_continuous(limits = c(-15, 35), breaks = seq(-15, 35, 5)) +
+  scale_x_continuous(limits = c(5, 60), breaks = seq(5, 60, 10),
+                     labels = percent_format(scale = 1)) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("darkorange", "mediumpurple"),
+                     labels = c("Low Black Population", "High Black Population")) +
+  labs(col = "") +
+  
+# Plotting regression lines based on the regression values that I find below
+ geom_abline(intercept = 36.36935, slope = -0.88337, color ="darkorange", linewidth = 0.5) +
+ geom_abline(intercept = 36.36935-1.63375, slope = -0.88337, color ="mediumpurple", linewidth = 0.5)
+
+```
+  
+  To confirm this, I ran a regression that considered each county’s college-educated percentage and if the county had a high/low Black proportion as explanatory variables for the Republican shift. This regression estimates how a county’s Black population and college-educated percentage impact the Republican swing. When holding constant the percentage of each county with at least a bachelor’s degree, on average, the counties with a higher Black percentage shifted Republican about 1.63% less Republican than the counties with a lower Black percentage. This value was statistically significant. Thus, the regression indicates that below-median Black populated counties shifted more Republican in 2016.
+  
+```{r, echo = F}
+m <- lm(swing ~ bach.degree.plus, data = flipped.states)
+m1 <- lm(swing ~ bach.degree.plus + high.black.pop, data = flipped.states)
+stargazer(m, m1, type = "text")
+# Running regression to see the coefficients...seeing slope for the lines and intercept values. 
+# I can use these values to add them to my plot using geom_abline
+# I also print my result so the reader can see it.
+```
+
+## 6 | Conclusion
+  This election helps us understand the larger population: the true relationship between education and county swings in the 2016 election. It is also a results sample for an election rerun under the same candidates and conditions. Thus, this election is one sample proving that the true correlation between these two variables, especially in Trump-flipped states, was negative and would be negative in an identical election. This election also shows that Michigan had the strongest negative correlation of all Trump-flipped states. Finally, I found that in Trump-flipped states, higher-Black proportion counties swung less Republican than lower-Black proportion counties. As winning Michigan, Wisconsin, and Pennsylvania is crucial to becoming president, this information can help presidential campaigns develop strategies to win various education groups.
